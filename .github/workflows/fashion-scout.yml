@@ -24,5 +24,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PRODUCT_FEED_URL: ${{ secrets.PRODUCT_FEED_URL }}
+          ENABLE_GODALO_DISCOVERY: '1'
           TEST_TELEGRAM: ${{ inputs.test_telegram && '1' || '0' }}
         run: python fashion_scout.py
