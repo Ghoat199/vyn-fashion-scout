@@ -1,17 +1,28 @@
 name: VYN Fashion Scout
 on:
   workflow_dispatch:
+    inputs:
+      test_telegram:
+        description: 'Send Telegram test message'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '7,37 * * * *'
+permissions:
+  contents: read
 jobs:
-  telegram-test:
+  scout:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test Telegram
+      - name: Scan authorized product feed or test Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEST_TELEGRAM: '1'
+          PRODUCT_FEED_URL: ${{ secrets.PRODUCT_FEED_URL }}
+          TEST_TELEGRAM: ${{ inputs.test_telegram && '1' || '0' }}
         run: python fashion_scout.py
