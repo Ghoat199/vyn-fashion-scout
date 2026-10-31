@@ -104,6 +104,9 @@ def discover_godalo():
     discovered, _ = request("tools/list", params={}, request_id=2, session=session)
     tools = discovered.get("result", {}).get("tools", [])
     print("Godalo tools:", [tool.get("name") for tool in tools])
+    for tool in tools:
+        if tool.get("name") in ("get_deals", "get_recommendations"):
+            print("Godalo schema", tool["name"], json.dumps(tool.get("inputSchema", {}), ensure_ascii=False)[:4000])
     if not tools:
         print("Godalo returned no tools.")
 
