@@ -61,31 +61,51 @@ def scan():
 
 
 def discover_godalo():
-    """Experimental MCP discovery. No purchase alerts are generated."""
+    """Use MCP initialization before tool discovery; diagnostic only."""
     endpoint = "https://mcp.godalo.ai/mcp"
-    payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode()
-    req = urllib.request.Request(endpoint, data=payload, headers={
+    headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
-        "MCP-Protocol-Version": "2025-03-26",
+        "MCP-Protocol-Version": "2025-11-25",
         "User-Agent": "VYNFashionScout/1.2",
+    }
+
+    def request(method, params=None, request_id=1, session=None):
+        data = {"jsonrpc": "2.0", "method": method}
+        if request_id is not None:
+            data["id"] = request_id
+        if params is not None:
+            data["params"] = params
+        current_headers = dict(headers)
+        if session:
+            current_headers["Mcp-Session-Id"] = session
+        req = urllib.request.Request(endpoint, data=json.dumps(data).encode(), headers=current_headers)
+        with urllib.request.urlopen(req, timeout=20) as response:
+            session_id = response.headers.get("Mcp-Session-Id", session)
+            body = response.read(200000).decode("utf-8")
+            content_type = response.headers.get("Content-Type", "")
+        if "text/event-stream" in content_type:
+            events = [line[6:] for line in body.splitlines() if line.startswith("data:")]
+            messages = [json.loads(line) for line in events if line.strip() and line.strip() != "[DONE]"]
+            result = next((m for m in messages if "result" in m or "error" in m), {})
+        else:
+            result = json.loads(body) if body.strip() else {}
+        if "error" in result:
+            raise RuntimeError("MCP error: " + str(result["error"])[:300])
+        return result, session_id
+
+    initialized, session = request("initialize", {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "clientInfo": {"name": "vyn-fashion-scout", "version": "1.2.1"}
     })
-    with urllib.request.urlopen(req, timeout=20) as response:
-        body = response.read(200000).decode("utf-8")
-        content_type = response.headers.get("Content-Type", "")
-    if "text/event-stream" in content_type:
-        events = [line[6:] for line in body.splitlines() if line.startswith("data: ")]
-        messages = [json.loads(line) for line in events if line.strip() and line.strip() != "[DONE]"]
-        result = next((m for m in messages if "result" in m), {})
-    else:
-        result = json.loads(body)
-    tools = result.get("result", {}).get("tools", [])
-    for tool in tools:
-        if tool.get("name") in ("get_deals", "get_recommendations"):
-            print("Godalo MCP tool discovered:", tool["name"],
-                  json.dumps(tool.get("inputSchema", {}), ensure_ascii=False)[:2000])
+    print("Godalo initialized:", initialized.get("result", {}).get("protocolVersion", "unknown"))
+    request("notifications/initialized", request_id=None, session=session)
+    discovered, _ = request("tools/list", params={}, request_id=2, session=session)
+    tools = discovered.get("result", {}).get("tools", [])
+    print("Godalo tools:", [tool.get("name") for tool in tools])
     if not tools:
-        print("Godalo returned no discoverable tools.")
+        print("Godalo returned no tools.")
 
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
