@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 FEED_URL = os.getenv("PRODUCT_FEED_URL", "")
-MAX_COST = Decimal("50")
+MAX_COST = Decimal("20")
 MIN_PROFIT = Decimal("10")
 
 def money(value):
@@ -127,7 +127,7 @@ def discover_godalo():
     try:
         print("Godalo get_deals request started", flush=True)
         call_tool("get_deals", {
-            "country": "DE", "category": "fashion", "budget": 40, "min_discount": 30
+            "country": "DE", "category": "fashion", "budget": 20, "min_discount": 30
         }, 3)
         print("Godalo get_deals request completed", flush=True)
     except Exception as exc:
