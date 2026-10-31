@@ -80,7 +80,7 @@ def discover_godalo():
         if session:
             current_headers["Mcp-Session-Id"] = session
         req = urllib.request.Request(endpoint, data=json.dumps(data).encode(), headers=current_headers)
-        with urllib.request.urlopen(req, timeout=20) as response:
+        with urllib.request.urlopen(req, timeout=12) as response:
             session_id = response.headers.get("Mcp-Session-Id", session)
             body = response.read(200000).decode("utf-8")
             content_type = response.headers.get("Content-Type", "")
@@ -123,14 +123,15 @@ def discover_godalo():
             if part.get("type") == "text":
                 print("Godalo", name, "response:", str(part.get("text", ""))[:5000])
 
-    call_tool("get_deals", {
-        "country": "DE", "category": "fashion", "budget": 50, "min_discount": 20
-    }, 3)
-    for index, query in enumerate(("Nike Sneaker", "Adidas Sneaker",
-                                   "Puma Schuhe", "Tommy Hilfiger Kleidung"), start=4):
-        call_tool("get_recommendations", {
-            "query": query, "country": "DE", "budget": 50, "category": "fashion"
-        }, index)
+    try:
+        print("Godalo get_deals request started", flush=True)
+        call_tool("get_deals", {
+            "country": "DE", "category": "fashion", "budget": 50, "min_discount": 20
+        }, 3)
+        print("Godalo get_deals request completed", flush=True)
+    except Exception as exc:
+        print(f"Godalo get_deals failed: {type(exc).__name__}: {exc}", flush=True)
+        print("No product alerts sent; will retry at next scheduled run.", flush=True)
 
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
