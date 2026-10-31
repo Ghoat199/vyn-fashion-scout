@@ -118,11 +118,23 @@ def discover_godalo():
             print("Godalo tool error:", name)
             return
         data = result.get("result", {}).get("content", [])
-        # Diagnostic output only: never send unverified resale claims to Telegram.
+        # The provider can ignore budget and country filters. Treat its prose as
+        # untrusted data; never infer a resale margin from a crossed-out price.
+        import re
+        seen = 0
+        rejected = 0
         for part in data[:3]:
-            if part.get("type") == "text":
-                print("Godalo", name, "response:", str(part.get("text", ""))[:5000])
-                print("NOTE: Listed discounts are not verified resale profits; shipping and fees unknown.")
+            if part.get("type") != "text":
+                continue
+            raw = str(part.get("text", ""))
+            for line in raw.splitlines():
+                if re.match(r"^\\*\\*\\d+\\.", line.strip()):
+                    seen += 1
+                if re.search(r"\\b(?:GBP|USD)\\s*\\d", line):
+                    rejected += 1
+            print("Godalo response summary: product headings", seen,
+                  "| non-EUR price lines", rejected, flush=True)
+        print("No verified EUR total costs or resale prices; no purchase alerts.", flush=True)
 
     # Use specific fashion queries instead of the broad "fashion" deals category.
     # A single query per run avoids excessive requests and repeated generic results.
