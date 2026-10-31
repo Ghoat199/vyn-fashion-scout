@@ -109,6 +109,28 @@ def discover_godalo():
             print("Godalo schema", tool["name"], json.dumps(tool.get("inputSchema", {}), ensure_ascii=False)[:4000])
     if not tools:
         print("Godalo returned no tools.")
+        return
+
+    def call_tool(name, arguments, request_id):
+        result, _ = request("tools/call", {"name": name, "arguments": arguments},
+                            request_id=request_id, session=session)
+        if result.get("result", {}).get("isError"):
+            print("Godalo tool error:", name)
+            return
+        data = result.get("result", {}).get("content", [])
+        # Diagnostic output only: never send unverified resale claims to Telegram.
+        for part in data[:3]:
+            if part.get("type") == "text":
+                print("Godalo", name, "response:", str(part.get("text", ""))[:5000])
+
+    call_tool("get_deals", {
+        "country": "DE", "category": "fashion", "budget": 50, "min_discount": 20
+    }, 3)
+    for index, query in enumerate(("Nike Sneaker", "Adidas Sneaker",
+                                   "Puma Schuhe", "Tommy Hilfiger Kleidung"), start=4):
+        call_tool("get_recommendations", {
+            "query": query, "country": "DE", "budget": 50, "category": "fashion"
+        }, index)
 
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
