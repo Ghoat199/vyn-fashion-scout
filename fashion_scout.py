@@ -122,11 +122,12 @@ def discover_godalo():
         for part in data[:3]:
             if part.get("type") == "text":
                 print("Godalo", name, "response:", str(part.get("text", ""))[:5000])
+                print("NOTE: Listed discounts are not verified resale profits; shipping and fees unknown.")
 
     try:
         print("Godalo get_deals request started", flush=True)
         call_tool("get_deals", {
-            "country": "DE", "category": "fashion", "budget": 50, "min_discount": 20
+            "country": "DE", "category": "fashion", "budget": 40, "min_discount": 30
         }, 3)
         print("Godalo get_deals request completed", flush=True)
     except Exception as exc:
