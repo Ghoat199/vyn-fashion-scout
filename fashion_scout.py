@@ -124,14 +124,17 @@ def discover_godalo():
                 print("Godalo", name, "response:", str(part.get("text", ""))[:5000])
                 print("NOTE: Listed discounts are not verified resale profits; shipping and fees unknown.")
 
+    # Use specific fashion queries instead of the broad "fashion" deals category.
+    # A single query per run avoids excessive requests and repeated generic results.
     try:
-        print("Godalo get_deals request started", flush=True)
-        call_tool("get_deals", {
-            "country": "DE", "category": "fashion", "budget": 20, "min_discount": 30
+        query = "Nike Adidas Puma Sneaker Schuhe Kleidung"
+        print("Godalo targeted fashion search started:", query, flush=True)
+        call_tool("get_recommendations", {
+            "query": query, "country": "DE", "budget": 20, "category": "fashion"
         }, 3)
-        print("Godalo get_deals request completed", flush=True)
+        print("Godalo targeted fashion search completed", flush=True)
     except Exception as exc:
-        print(f"Godalo get_deals failed: {type(exc).__name__}: {exc}", flush=True)
+        print(f"Godalo targeted fashion search failed: {type(exc).__name__}: {exc}", flush=True)
         print("No product alerts sent; will retry at next scheduled run.", flush=True)
 
 def main():
