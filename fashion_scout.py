@@ -59,11 +59,44 @@ def scan():
     # Feed estimates are not verified sold prices. Do not send purchase alerts until validated.
     print(f"{len(candidates)} candidates from feed; alerts disabled pending price validation.")
 
+
+def discover_godalo():
+    """Experimental MCP discovery. No purchase alerts are generated."""
+    endpoint = "https://mcp.godalo.ai/mcp"
+    payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode()
+    req = urllib.request.Request(endpoint, data=payload, headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2025-03-26",
+        "User-Agent": "VYNFashionScout/1.2",
+    })
+    with urllib.request.urlopen(req, timeout=20) as response:
+        body = response.read(200000).decode("utf-8")
+        content_type = response.headers.get("Content-Type", "")
+    if "text/event-stream" in content_type:
+        events = [line[6:] for line in body.splitlines() if line.startswith("data: ")]
+        messages = [json.loads(line) for line in events if line.strip() and line.strip() != "[DONE]"]
+        result = next((m for m in messages if "result" in m), {})
+    else:
+        result = json.loads(body)
+    tools = result.get("result", {}).get("tools", [])
+    for tool in tools:
+        if tool.get("name") in ("get_deals", "get_recommendations"):
+            print("Godalo MCP tool discovered:", tool["name"],
+                  json.dumps(tool.get("inputSchema", {}), ensure_ascii=False)[:2000])
+    if not tools:
+        print("Godalo returned no discoverable tools.")
+
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
         send("✅ VYN Fashion Scout: Telegram-Verbindung funktioniert! Noch keine Produktsuche aktiv.")
     else:
         scan()
+        if os.getenv("ENABLE_GODALO_DISCOVERY") == "1":
+            try:
+                discover_godalo()
+            except Exception as exc:
+                print(f"Godalo discovery unavailable: {type(exc).__name__}: {exc}")
 
 if __name__ == "__main__":
     main()
