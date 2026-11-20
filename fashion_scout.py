@@ -1,164 +1,139 @@
+"""Fashion Snipe alert worker.
+
+Reads only a user-configured, authorized HTTPS JSON feed. It does not scrape
+Vinted or Kleinanzeigen, bypass logins, or place orders.
+"""
 import json
 import os
 import urllib.request
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 FEED_URL = os.getenv("PRODUCT_FEED_URL", "")
-MAX_COST = Decimal("20")
-MIN_PROFIT = Decimal("10")
+MAX_COST = Decimal(os.getenv("MAX_TOTAL_COST_EUR", "40"))
+MIN_PROFIT = Decimal(os.getenv("MIN_PROFIT_EUR", "12"))
+STATE_FILE = Path("seen_offers.json")
+ALLOWED_WORDS = (
+    "kleidung", "shirt", "t-shirt", "hoodie", "sweatshirt", "jacke",
+    "hose", "jeans", "pullover", "mantel", "kleid", "rock", "bluse",
+    "sneaker", "schuhe", "stiefel", "boots", "turnschuhe", "sportschuhe",
+    "nike", "adidas", "jordan", "new balance", "puma", "asics",
+    "carhartt", "stone island", "ralph lauren", "lacoste", "tommy hilfiger",
+    "the north face", "patagonia", "vintage"
+)
 
-def money(value):
+def decimal_value(value):
     try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError):
+        result = Decimal(str(value))
+        return result if result.is_finite() and result >= 0 else None
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
-def send(message):
+def send_telegram(message):
     if not TOKEN or not CHAT_ID:
-        raise RuntimeError("Telegram secrets are missing")
-    payload = json.dumps({"chat_id": CHAT_ID, "text": message}).encode()
+        raise RuntimeError("TELEGRAM_BOT_TOKEN oder TELEGRAM_CHAT_ID fehlt.")
+    payload = json.dumps({"chat_id": CHAT_ID, "text": message, "disable_web_page_preview": True}).encode()
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data=payload, headers={"Content-Type": "application/json"})
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     with urllib.request.urlopen(request, timeout=20) as response:
-        return json.load(response)
+        result = json.load(response)
+    if not result.get("ok"):
+        raise RuntimeError("Telegram hat die Nachricht nicht bestätigt.")
+
+def load_seen():
+    try:
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return set(data if isinstance(data, list) else [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+def save_seen(seen):
+    # Keep the most recent 5,000 offer keys.
+    STATE_FILE.write_text(json.dumps(sorted(seen)[-5000:], ensure_ascii=False, indent=2), encoding="utf-8")
 
 def scan():
     if not FEED_URL:
-        print("No authorized PRODUCT_FEED_URL configured; skipping scan.")
+        print("Kein autorisierter Produkt-Feed konfiguriert. Keine Marktplatzsuche ausgeführt.")
         return
     if not FEED_URL.startswith("https://"):
-        raise ValueError("Product feed must use HTTPS")
-    request = urllib.request.Request(FEED_URL, headers={"User-Agent": "VYNFashionScout/1.0"})
+        raise ValueError("PRODUCT_FEED_URL muss HTTPS verwenden.")
+    request = urllib.request.Request(FEED_URL, headers={"User-Agent": "FashionSnipe/0.1"})
     with urllib.request.urlopen(request, timeout=25) as response:
-        if int(response.headers.get("Content-Length", "0")) > 2_000_000:
-            raise ValueError("Feed too large")
-        data = json.loads(response.read(2_000_001))
-    if not isinstance(data, list):
-        raise ValueError("Expected a JSON array of products")
-    candidates = []
-    for product in data[:500]:
+        raw = response.read(2_000_001)
+    if len(raw) > 2_000_000:
+        raise ValueError("Produkt-Feed ist größer als 2 MB.")
+    products = json.loads(raw)
+    if not isinstance(products, list):
+        raise ValueError("Der Produkt-Feed muss ein JSON-Array sein.")
+
+    seen = load_seen()
+    new_seen = set(seen)
+    sent = 0
+    checked = 0
+    for product in products[:500]:
         if not isinstance(product, dict):
             continue
-        price = money(product.get("price"))
-        shipping = money(product.get("shipping"))
-        resale = money(product.get("resale_estimate"))
-        fees = money(product.get("selling_fees"))
-        outbound = money(product.get("outbound_shipping"))
+        title = str(product.get("title", "")).strip()
+        category = str(product.get("category", "")).strip()
+        searchable = (title + " " + category).casefold()
+        if not title or not any(word in searchable for word in ALLOWED_WORDS):
+            continue
+
+        price = decimal_value(product.get("price"))
+        shipping = decimal_value(product.get("shipping", 0))
+        resale = decimal_value(product.get("resale_estimate"))
+        selling_fees = decimal_value(product.get("selling_fees", 0))
+        outbound_shipping = decimal_value(product.get("outbound_shipping", 0))
         url = product.get("url", "")
-        if any(v is None or v < 0 for v in (price, shipping, resale, fees, outbound)):
+        if any(v is None for v in (price, shipping, resale, selling_fees, outbound_shipping)):
             continue
         if not isinstance(url, str) or not url.startswith("https://"):
             continue
-        cost = price + shipping
-        profit = resale - cost - fees - outbound
-        if cost <= MAX_COST and profit >= MIN_PROFIT:
-            candidates.append((profit, product, cost))
-    # Feed estimates are not verified sold prices. Do not send purchase alerts until validated.
-    print(f"{len(candidates)} candidates from feed; alerts disabled pending price validation.")
 
+        checked += 1
+        total_cost = price + shipping
+        estimated_profit = resale - total_cost - selling_fees - outbound_shipping
+        if total_cost > MAX_COST or estimated_profit < MIN_PROFIT:
+            continue
 
-def discover_godalo():
-    """Use MCP initialization before tool discovery; diagnostic only."""
-    endpoint = "https://mcp.godalo.ai/mcp"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        "MCP-Protocol-Version": "2025-11-25",
-        "User-Agent": "VYNFashionScout/1.2",
-    }
+        offer_key = str(product.get("id") or url)
+        if offer_key in seen:
+            continue
 
-    def request(method, params=None, request_id=1, session=None):
-        data = {"jsonrpc": "2.0", "method": method}
-        if request_id is not None:
-            data["id"] = request_id
-        if params is not None:
-            data["params"] = params
-        current_headers = dict(headers)
-        if session:
-            current_headers["Mcp-Session-Id"] = session
-        req = urllib.request.Request(endpoint, data=json.dumps(data).encode(), headers=current_headers)
-        with urllib.request.urlopen(req, timeout=12) as response:
-            session_id = response.headers.get("Mcp-Session-Id", session)
-            body = response.read(200000).decode("utf-8")
-            content_type = response.headers.get("Content-Type", "")
-        if "text/event-stream" in content_type:
-            events = [line[6:] for line in body.splitlines() if line.startswith("data:")]
-            messages = [json.loads(line) for line in events if line.strip() and line.strip() != "[DONE]"]
-            result = next((m for m in messages if "result" in m or "error" in m), {})
-        else:
-            result = json.loads(body) if body.strip() else {}
-        if "error" in result:
-            raise RuntimeError("MCP error: " + str(result["error"])[:300])
-        return result, session_id
+        platform = str(product.get("platform", "Angebotsquelle"))
+        size = str(product.get("size", "Nicht angegeben"))
+        brand = str(product.get("brand", ""))
+        message = (
+            "👟 Fashion Snipe – möglicher Deal\n\n"
+            f"{title}\n"
+            f"Plattform: {platform}\n"
+            f"Marke: {brand or 'Nicht angegeben'}\n"
+            f"Größe: {size}\n"
+            f"Kauf + Versand: {total_cost:.2f} €\n"
+            f"Geschätzter Verkauf: {resale:.2f} €\n"
+            f"Geschätzter Überschuss: {estimated_profit:.2f} €\n\n"
+            f"{url}\n\n"
+            "Hinweis: Schätzwert aus dem Feed, kein garantierter Gewinn. Echtheit, Zustand und Marktpreis selbst prüfen."
+        )
+        send_telegram(message)
+        new_seen.add(offer_key)
+        sent += 1
 
-    initialized, session = request("initialize", {
-        "protocolVersion": "2025-11-25",
-        "capabilities": {},
-        "clientInfo": {"name": "vyn-fashion-scout", "version": "1.2.1"}
-    })
-    print("Godalo initialized:", initialized.get("result", {}).get("protocolVersion", "unknown"))
-    request("notifications/initialized", request_id=None, session=session)
-    discovered, _ = request("tools/list", params={}, request_id=2, session=session)
-    tools = discovered.get("result", {}).get("tools", [])
-    print("Godalo tools:", [tool.get("name") for tool in tools])
-    for tool in tools:
-        if tool.get("name") in ("get_deals", "get_recommendations"):
-            print("Godalo schema", tool["name"], json.dumps(tool.get("inputSchema", {}), ensure_ascii=False)[:4000])
-    if not tools:
-        print("Godalo returned no tools.")
-        return
-
-    def call_tool(name, arguments, request_id):
-        result, _ = request("tools/call", {"name": name, "arguments": arguments},
-                            request_id=request_id, session=session)
-        if result.get("result", {}).get("isError"):
-            print("Godalo tool error:", name)
-            return
-        data = result.get("result", {}).get("content", [])
-        # The provider can ignore budget and country filters. Treat its prose as
-        # untrusted data; never infer a resale margin from a crossed-out price.
-        import re
-        seen = 0
-        rejected = 0
-        for part in data[:3]:
-            if part.get("type") != "text":
-                continue
-            raw = str(part.get("text", ""))
-            for line in raw.splitlines():
-                if re.match(r"^\\*\\*\\d+\\.", line.strip()):
-                    seen += 1
-                if re.search(r"\\b(?:GBP|USD)\\s*\\d", line):
-                    rejected += 1
-            print("Godalo response summary: product headings", seen,
-                  "| non-EUR price lines", rejected, flush=True)
-        print("No verified EUR total costs or resale prices; no purchase alerts.", flush=True)
-
-    # Use specific fashion queries instead of the broad "fashion" deals category.
-    # A single query per run avoids excessive requests and repeated generic results.
-    try:
-        query = "Nike Adidas Puma Sneaker Schuhe Kleidung"
-        print("Godalo targeted fashion search started:", query, flush=True)
-        call_tool("get_recommendations", {
-            "query": query, "country": "DE", "budget": 20, "category": "fashion"
-        }, 3)
-        print("Godalo targeted fashion search completed", flush=True)
-    except Exception as exc:
-        print(f"Godalo targeted fashion search failed: {type(exc).__name__}: {exc}", flush=True)
-        print("No product alerts sent; will retry at next scheduled run.", flush=True)
+    save_seen(new_seen)
+    print(f"Feed geprüft: {checked} passende Fashion-Artikel; Telegram-Meldungen: {sent}.")
 
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
-        send("✅ VYN Fashion Scout: Telegram-Verbindung funktioniert! Noch keine Produktsuche aktiv.")
-    else:
-        scan()
-        if os.getenv("ENABLE_GODALO_DISCOVERY") == "1":
-            try:
-                discover_godalo()
-            except Exception as exc:
-                print(f"Godalo discovery unavailable: {type(exc).__name__}: {exc}")
+        send_telegram("✅ Fashion Snipe: Telegram-Verbindung funktioniert. Fashion-Feed ist separat einzurichten.")
+        print("Telegram-Test erfolgreich.")
+        return
+    scan()
 
 if __name__ == "__main__":
     main()
