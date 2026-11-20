@@ -1,29 +1,45 @@
-name: VYN Fashion Scout
+name: Fashion Snipe
 on:
   workflow_dispatch:
     inputs:
       test_telegram:
-        description: 'Send Telegram test message'
+        description: "Send a Telegram test message"
         type: boolean
         default: false
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: "*/15 * * * *"
 permissions:
   contents: read
+concurrency:
+  group: fashion-snipe-scan
+  cancel-in-progress: false
 jobs:
-  scout:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Scan authorized product feed or test Telegram
+          python-version: "3.12"
+      - name: Restore seen-offer state
+        uses: actions/cache/restore@v4
+        with:
+          path: seen_offers.json
+          key: fashion-snipe-seen-${{ github.run_id }}
+          restore-keys: fashion-snipe-seen-
+      - name: Scan authorized fashion feed or test Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PRODUCT_FEED_URL: ${{ secrets.PRODUCT_FEED_URL }}
-          ENABLE_GODALO_DISCOVERY: '1'
+          MAX_TOTAL_COST_EUR: "40"
+          MIN_PROFIT_EUR: "12"
           TEST_TELEGRAM: ${{ inputs.test_telegram && '1' || '0' }}
         run: python fashion_scout.py
+      - name: Save seen-offer state
+        if: success() && hashFiles('seen_offers.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: seen_offers.json
+          key: fashion-snipe-seen-${{ github.run_id }}
