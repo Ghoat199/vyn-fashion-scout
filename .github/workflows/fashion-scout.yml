@@ -39,7 +39,7 @@ jobs:
           TEST_TELEGRAM: ${{ inputs.test_telegram && '1' || '0' }}
         run: python fashion_scout.py
       - name: Save seen-offer state
-        if: success() && hashFiles('seen_offers.json') != ''
+        if: always() && hashFiles('seen_offers.json') != ''
         uses: actions/cache/save@v4
         with:
           path: seen_offers.json
