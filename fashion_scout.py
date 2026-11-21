@@ -11,7 +11,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 APISH_KEY = os.getenv("APISH_API_KEY", "")
 SCAVIO_KEY = os.getenv("SCAVIO_API_KEY", "")
-MAX_COST = Decimal(os.getenv("MAX_TOTAL_COST_EUR", "40"))
+MAX_COST = Decimal(os.getenv("MAX_TOTAL_COST_EUR", "15"))
 STATE_FILE = Path("seen_offers.json")
 
 # One search per marketplace per run. Rotate terms to conserve Scavio's credits.
