@@ -105,7 +105,7 @@ def normalize(item, platform):
         return None
     title = str(item.get("title") or item.get("name") or "").strip()
     url = item.get("url") or item.get("link") or item.get("item_url") or ""
-    price = dec(item.get("price", item.get("price_value")))
+    price = dec(item.get("total_price", item.get("price", item.get("price_value"))))
     if not title or not isinstance(url, str) or not url.startswith("https://") or price is None:
         return None
     search_text = title.casefold()
