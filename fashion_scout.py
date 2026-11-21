@@ -1,4 +1,4 @@
-""""Fashion Snipe: authorized API-backed fashion listing alerts."""
+"""Fashion Snipe: authorized API-backed fashion listing alerts."""
 import json
 import os
 import urllib.parse
