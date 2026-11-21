@@ -7,7 +7,8 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "*/15 * * * *"
+    # One daily run keeps the one-time Scavio starter credits under control.
+    - cron: "0 7 * * *"
 permissions:
   contents: read
 concurrency:
@@ -28,13 +29,13 @@ jobs:
           path: seen_offers.json
           key: fashion-snipe-seen-${{ github.run_id }}
           restore-keys: fashion-snipe-seen-
-      - name: Scan authorized fashion feed or test Telegram
+      - name: Search Vinted and Kleinanzeigen or test Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PRODUCT_FEED_URL: ${{ secrets.PRODUCT_FEED_URL }}
+          APISH_API_KEY: ${{ secrets.APISH_API_KEY }}
+          SCAVIO_API_KEY: ${{ secrets.SCAVIO_API_KEY }}
           MAX_TOTAL_COST_EUR: "40"
-          MIN_PROFIT_EUR: "12"
           TEST_TELEGRAM: ${{ inputs.test_telegram && '1' || '0' }}
         run: python fashion_scout.py
       - name: Save seen-offer state
