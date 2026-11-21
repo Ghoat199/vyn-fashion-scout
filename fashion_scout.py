@@ -1,6 +1,8 @@
 """Fashion Snipe: authorized API-backed fashion listing alerts."""
 import json
 import os
+import re
+import statistics
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -154,6 +156,46 @@ def search_kleinanzeigen(term):
     )
     return [p for p in (normalize(x, "Kleinanzeigen") for x in unwrap_items(response, "Kleinanzeigen")) if p]
 
+
+def category_for(title):
+    value = title.casefold()
+    groups = {
+        "Sneaker/Schuhe": ("sneaker", "schuh", "boots", "stiefel", "turnschuh"),
+        "Jacke": ("jacke", "jacket", "coat", "mantel", "parka"),
+        "Hose": ("hose", "jeans", "trouser", "pants"),
+        "Oberteil": ("shirt", "t-shirt", "hoodie", "sweatshirt", "pullover", "sweater", "bluse"),
+    }
+    for category, words in groups.items():
+        if any(word in value for word in words):
+            return category
+    return "Sonstige"
+
+def comparable_estimate(item, all_items):
+    # Compare only listings from the same search batch. These are asking prices,
+    # not confirmed completed-sale prices.
+    words = set(re.findall(r"[a-z0-9]+", item["title"].casefold()))
+    ignored = {"the", "and", "mit", "für", "neu", "new", "top", "sehr", "gut", "größe"}
+    words -= ignored
+    category = category_for(item["title"])
+    brand = item["brand"].casefold().strip()
+    matches = []
+    for other in all_items:
+        if other["id"] == item["id"] or other["platform"] == item["platform"]:
+            continue
+        if category_for(other["title"]) != category:
+            continue
+        other_brand = other["brand"].casefold().strip()
+        if brand and other_brand and brand != other_brand:
+            continue
+        other_words = set(re.findall(r"[a-z0-9]+", other["title"].casefold())) - ignored
+        overlap = len(words & other_words) / max(1, len(words | other_words))
+        same_brand = bool(brand and other_brand and brand == other_brand)
+        if overlap >= 0.25 or same_brand:
+            matches.append(other["price"])
+    if len(matches) < 2:
+        return None, len(matches)
+    return Decimal(str(statistics.median(matches))).quantize(Decimal("0.01")), len(matches)
+
 def main():
     if os.getenv("TEST_TELEGRAM") == "1":
         send_telegram("✅ Fashion Snipe: Telegram-Verbindung funktioniert.")
@@ -180,15 +222,24 @@ def main():
     for item in results:
         if item["id"] in seen or item["price"] > MAX_COST:
             continue
+        resale, comparable_count = comparable_estimate(item, results)
+        if resale is None:
+            resale_text = "Noch keine zuverlässigen Vergleichsangebote"
+            profit_text = "Nicht berechenbar"
+        else:
+            resale_text = f"Ca. {resale:.2f} € (Angebotspreise aus {comparable_count} Vergleichen)"
+            profit_text = f"Ca. {resale - item['price']:.2f} € vor Gebühren und Versand"
         message = (
-            "🧥 Fashion Snipe – neues Angebot\n\n"
-            f"{item['title']}\n"
-            f"Plattform: {item['platform']}\n"
-            f"Marke: {item['brand'] or 'Nicht angegeben'}\n"
-            f"Größe: {item['size']}\n"
-            f"Kaufpreis: {item['price']:.2f} €\n\n"
-            f"{item['url']}\n\n"
-            "Hinweis: Preis und Zustand vor dem Kauf selbst prüfen. Ein möglicher Wiederverkaufsgewinn ist nicht garantiert."
+            "🧥 Fashion Snipe – neues Angebot\\n\\n"
+            f"{item['title']}\\n"
+            f"Plattform: {item['platform']}\\n"
+            f"Marke: {item['brand'] or 'Nicht angegeben'}\\n"
+            f"Größe: {item['size']}\\n"
+            f"Kaufpreis: {item['price']:.2f} €\\n"
+            f"Geschätzter Verkaufspreis: {resale_text}\\n"
+            f"Möglicher Brutto-Gewinn: {profit_text}\\n\\n"
+            f"{item['url']}\\n\\n"
+            "Schätzung basiert auf ähnlichen aktiven Anzeigen, nicht auf bestätigten Verkäufen. Zustand, Nachfrage, Gebühren und Versand können den Erlös verändern."
         )
         send_telegram(message)
         new_seen.add(item["id"])
