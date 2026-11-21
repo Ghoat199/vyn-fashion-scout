@@ -14,6 +14,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 APISH_KEY = os.getenv("APISH_API_KEY", "")
 SCAVIO_KEY = os.getenv("SCAVIO_API_KEY", "")
 MAX_COST = Decimal(os.getenv("MAX_TOTAL_COST_EUR", "15"))
+MIN_ESTIMATED_PROFIT = Decimal(os.getenv("MIN_ESTIMATED_PROFIT_EUR", "10"))
 STATE_FILE = Path("seen_offers.json")
 
 # One search per marketplace per run. Rotate terms to conserve Scavio's credits.
@@ -224,11 +225,14 @@ def main():
             continue
         resale, comparable_count = comparable_estimate(item, results)
         if resale is None:
-            resale_text = "Noch keine zuverlässigen Vergleichsangebote"
-            profit_text = "Nicht berechenbar"
-        else:
-            resale_text = f"Ca. {resale:.2f} € (Angebotspreise aus {comparable_count} Vergleichen)"
-            profit_text = f"Ca. {resale - item['price']:.2f} € vor Gebühren und Versand"
+            print(f"Übersprungen (keine Vergleichspreise): {item['title']}")
+            continue
+        estimated_profit = resale - item["price"]
+        if estimated_profit < MIN_ESTIMATED_PROFIT:
+            print(f"Übersprungen (geschätzter Gewinn {estimated_profit:.2f} € unter {MIN_ESTIMATED_PROFIT:.2f} €): {item['title']}")
+            continue
+        resale_text = f"Ca. {resale:.2f} € (Angebotspreise aus {comparable_count} Vergleichen)"
+        profit_text = f"Ca. {estimated_profit:.2f} € vor Gebühren und Versand"
         message = (
             "🧥 Fashion Snipe – neues Angebot\n\n"
             f"{item['title']}\n"
